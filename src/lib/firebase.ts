@@ -1,9 +1,9 @@
 
-import { initializeApp, getApps, getApp, FirebaseOptions } from "firebase/app";
+import { initializeApp, getApps, getApp, FirebaseOptions, serverTimestamp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-// import { getMessaging } from "firebase/messaging"; // Uncomment if FCM is needed
+ import { getMessaging } from "firebase/messaging"; // Uncomment if FCM is needed
 
 const firebaseConfig: FirebaseOptions = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -31,7 +31,7 @@ let app;
 let auth: ReturnType<typeof getAuth>;
 let db: ReturnType<typeof getFirestore>;
 let storage: ReturnType<typeof getStorage>;
-// let messaging: ReturnType<typeof getMessaging> | null = null;
+ let messaging: ReturnType<typeof getMessaging> | null = null;
 
 if (missingKeys.length > 0) {
   console.error(
@@ -52,4 +52,4 @@ if (missingKeys.length > 0) {
 }
 
 // Export potentially undefined instances if initialization failed
-export { app, auth, db, storage /*, messaging*/ }; // Export messaging if needed
+export { app, auth, db, storage, serverTimestamp /*, messaging*/ }; // Export messaging if needed

@@ -1,0 +1,25 @@
+{
+  "rules": {
+    "rules_version": "2",
+    "service": "firebase.storage",
+    "definition": {
+      "match": "/b/{bucket}/o",
+      "rules": {
+        "match": "/patient_records/{userId}/{fileName}",
+        "rules": {
+          "allow": {
+            "read": "request.auth != null && request.auth.uid == userId",
+            "write": "request.auth != null && request.auth.uid == userId"
+          }
+        },
+        "match": "/{allPaths=**}",
+        "rules": {
+          "allow": {
+            "read": "false",
+            "write": "false"
+          }
+        }
+      }
+    }
+  }
+}

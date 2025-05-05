@@ -10,12 +10,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Label } from "@/components/ui/label"; // Import Label component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Calendar as CalendarIcon, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { DateRange } from "react-day-picker";
-import { db, auth } from '@/lib/firebase'; // Import db and auth
-import { collection, query, where, getDocs } from 'firebase/firestore'; // Import Firestore functions
+import { db, auth } from '@/lib/firebase'; // Import db, auth
+import { collection, query, where, getDocs, serverTimestamp, addDoc, Timestamp } from 'firebase/firestore'; // Import Firestore functions
 import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
 import { useAuth } from "@/context/AuthContext"; // Import useAuth
 
@@ -101,23 +102,18 @@ export default function BookAppointmentPage() {
             status: 'pending' // Initial status
         });
 
-         try {
-             // TODO: Implement Firestore logic to create an appointment request document in a 'requests' or 'appointments' collection
-             // Example:
-             // const docRef = await addDoc(collection(db, 'requests'), {
-             //    doctorId: selectedDoctor.id,
-             //    doctorName: selectedDoctor.name,
-             //    patientId: user.uid,
-             //    patientName: user.displayName || "Patient",
-             //    requestedDate: formattedDate, // Store date separately?
-             //    requestedTime: selectedTime,   // Store time separately?
-             //    reason: reason,
-             //    status: 'pending',
-             //    createdAt: serverTimestamp() // Track request time
-             // });
-             // console.log("Request document written with ID: ", docRef.id);
-
-
+        try {
+            const docRef = await addDoc(collection(db, 'appointments'), {
+                doctorId: selectedDoctor.id,
+                doctorName: selectedDoctor.name,
+                patientId: user.uid,
+                patientName: user.displayName || "Patient",
+                date: Timestamp.fromDate(new Date(formattedDate)), // Store date separately
+                time: selectedTime,   // Store time separately
+                reason: reason,
+                status: 'pending',
+                createdAt: serverTimestamp() // Track request time
+            });
              // Simulate API call for now
             await new Promise(resolve => setTimeout(resolve, 1500));
 

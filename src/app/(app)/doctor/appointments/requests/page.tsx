@@ -6,9 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Check, X, Clock } from "lucide-react";
-import { useState, useEffect, useCallback } from "react"; // Added useCallback
+import { useState, useEffect, useCallback } from "react";
 import { db, auth } from '@/lib/firebase'; // Import db and auth
-import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, Timestamp, addDoc, serverTimestamp } from 'firebase/firestore'; // Import Firestore functions
+import { collection, query, where, getDocs, doc, updateDoc, Timestamp, serverTimestamp } from 'firebase/firestore'; // Import Firestore functions
 import { useAuth } from "@/context/AuthContext"; // Import useAuth
 import { useToast } from "@/hooks/use-toast"; // Import useToast
 import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
@@ -22,7 +22,7 @@ interface AppointmentRequest {
   doctorName?: string; // Optional, maybe fetched separately or stored redundantly
   // Using string for requested time from previous code, consider structured date/time
   requestedTime: string; // Example: "YYYY-MM-DD HH:MM AM/PM" or Timestamp
-  reason?: string;
+  reason: string;
   status: 'pending' | 'confirmed' | 'canceled'; // Only pending should show here
   createdAt: Timestamp; // Track creation time
 }
@@ -39,10 +39,9 @@ export default function DoctorRequestsPage() {
     try {
       // Query the 'requests' collection (or 'appointments' if using one collection)
       const q = query(
-        collection(db, "requests"), // Adjust collection name if needed
+        collection(db, "appointments"),
         where("doctorId", "==", currentUserId),
         where("status", "==", "pending"),
-        orderBy("createdAt", "asc") // Show oldest requests first
       );
       const querySnapshot = await getDocs(q);
       const requestsData = querySnapshot.docs.map(doc => ({
@@ -91,41 +90,13 @@ export default function DoctorRequestsPage() {
 
     const handleApprove = async (request: AppointmentRequest) => {
         // 1. Update the request status to 'confirmed' (or delete the request)
-        // 2. Create a new entry in the main 'appointments' collection
         setIsLoading(true); // Indicate processing
-        const requestDocRef = doc(db, "requests", request.id);
-        const appointmentsColRef = collection(db, "appointments");
+        const requestDocRef = doc(db, "appointments", request.id);
 
         try {
-            // Update request status (optional, could just delete)
-            // await updateDoc(requestDocRef, { status: "confirmed" });
-
-            // Create confirmed appointment
-             // Extract date and time from the requestedTime string/timestamp for the appointment doc
-             let appointmentDate: Date | null = null;
-             let appointmentTime: string = "N/A";
-             if (typeof request.requestedTime === 'string') {
-                try { appointmentDate = new Date(request.requestedTime); appointmentTime = appointmentDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch {}
-             } else if (request.requestedTime instanceof Timestamp) {
-                 appointmentDate = request.requestedTime.toDate();
-                 appointmentTime = appointmentDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-             }
-
-            await addDoc(appointmentsColRef, {
-                patientId: request.patientId,
-                patientName: request.patientName,
-                doctorId: request.doctorId,
-                doctorName: user?.displayName || "Doctor", // Add doctor's name
-                date: appointmentDate ? Timestamp.fromDate(appointmentDate) : null, // Store as Timestamp
-                time: appointmentTime, // Store time string
-                reason: request.reason || "",
+            await updateDoc(requestDocRef, {
                 status: "confirmed",
-                createdAt: serverTimestamp(), // When appointment was confirmed
-                requestRef: request.id // Link back to original request if needed
             });
-
-            // Delete the original request document
-            await deleteDoc(requestDocRef);
 
             // Update UI state
             setPendingRequests(prev => prev.filter(req => req.id !== request.id));
@@ -133,34 +104,28 @@ export default function DoctorRequestsPage() {
 
         } catch (error) {
             console.error("Error approving request:", error);
-            toast({ title: "Error", description: "Could not approve the request.", variant: "destructive" });
+            toast({ title: "Error", description: "Could not approve request. Please try again.", variant: "destructive" });
         } finally {
              setIsLoading(false);
         }
     };
 
-    const handleReject = async (requestId: string) => {
+    const handleReject = async (request: AppointmentRequest) => {
         setIsLoading(true);
-        const requestDocRef = doc(db, "requests", requestId);
+        const requestDocRef = doc(db, "appointments", request.id);
         try {
-            await deleteDoc(requestDocRef);
+            await updateDoc(requestDocRef, {
+                status: "rejected",
+            });
             // Update UI state
-            setPendingRequests(prev => prev.filter(req => req.id !== requestId));
+            setPendingRequests(prev => prev.filter(req => req.id !== request.id));
             toast({ title: "Rejected", description: "Appointment request rejected.", variant: "destructive" });
         } catch (error) {
             console.error("Error rejecting request:", error);
-            toast({ title: "Error", description: "Could not reject the request.", variant: "destructive" });
+            toast({ title: "Error", description: "Could not reject request. Please try again.", variant: "destructive" });
         } finally {
              setIsLoading(false);
         }
-    };
-
-     // Placeholder for reschedule - typically involves deleting the request and prompting the doctor/patient to rebook
-     const handleReschedule = async (requestId: string) => {
-          // For now, just delete the request like reject
-          await handleReject(requestId);
-          toast({ title: "Request Removed", description: "Please coordinate rescheduling with the patient." });
-        // TODO: Open a modal or navigate to a rescheduling interface/chat
     };
 
   return (
@@ -201,16 +166,13 @@ export default function DoctorRequestsPage() {
                           {req.reason && <p className="text-sm mt-1">Reason: <span className="italic text-muted-foreground">{req.reason}</span></p>}
                         </div>
                         <div className="flex gap-2 flex-shrink-0 mt-2 md:mt-0">
-                           <Button size="sm" variant="outline" onClick={() => handleApprove(req)} className="text-green-600 border-green-600 hover:bg-green-50 hover:text-green-700">
+                           <Button size="sm" variant="outline" onClick={() => handleApprove(req)} className="text-green-600 border-green-600 hover:bg-green-50 hover:text-green-700" disabled={isLoading}>
                               <Check className="h-4 w-4 mr-1" /> Approve
                            </Button>
-                           <Button size="sm" variant="outline" onClick={() => handleReject(req.id)} className="text-red-600 border-red-600 hover:bg-red-50 hover:text-red-700">
+                           <Button size="sm" variant="outline" onClick={() => handleReject(req)} className="text-red-600 border-red-600 hover:bg-red-50 hover:text-red-700" disabled={isLoading}>
                                <X className="h-4 w-4 mr-1" /> Reject
                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => handleReschedule(req.id)}>
-                                <Clock className="h-4 w-4 mr-1" /> Reschedule
-                            </Button>
-                        </div>
+                         </div>
                       </li>
                     ))}
                   </ul>
