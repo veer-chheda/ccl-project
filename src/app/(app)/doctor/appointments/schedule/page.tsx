@@ -1,28 +1,119 @@
+
 "use client";
 
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Calendar } from "@/components/ui/calendar"; // Assuming you have a Calendar component
+import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
-import type { DateRange } from "react-day-picker"; // Import DateRange type
+import { useState, useEffect, useCallback } from "react";
+import { db, auth } from '@/lib/firebase'; // Import db and auth
+import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore'; // Import Firestore functions
+import { useAuth } from "@/context/AuthContext"; // Import useAuth
+import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
+import { startOfDay, endOfDay, isEqual } from 'date-fns'; // Import date-fns helpers
 
-// Mock data - replace with Firestore fetching
-const mockAppointments = [
-  { id: 'apt1', patientName: 'Alice Smith', time: '10:00 AM', date: new Date(2024, 6, 25), status: 'confirmed' },
-  { id: 'apt2', patientName: 'Bob Johnson', time: '11:30 AM', date: new Date(2024, 6, 25), status: 'confirmed' },
-  { id: 'apt3', patientName: 'Charlie Brown', time: '02:00 PM', date: new Date(2024, 6, 26), status: 'pending' },
-  { id: 'apt4', patientName: 'Diana Prince', time: '09:00 AM', date: new Date(2024, 6, 27), status: 'confirmed' },
-];
+// Interface for confirmed appointments from Firestore
+interface Appointment {
+  id: string;
+  patientId: string;
+  patientName: string;
+  doctorId: string;
+  date: Timestamp; // Use Firestore Timestamp for date
+  time: string; // Store time as a string (e.g., "10:00 AM")
+  status: 'confirmed' | 'pending' | 'completed' | 'canceled'; // Allow other statuses if needed, though filtering for 'confirmed'
+  reason?: string;
+  // Add other relevant fields
+}
 
 export default function DoctorSchedulePage() {
-    // Use useState<Date | undefined> for single date selection
-    const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+    const { user } = useAuth(); // Get current doctor user
+    const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date()); // Default to today
+    const [appointments, setAppointments] = useState<Appointment[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
-    // Filter appointments based on the selected date
-    const filteredAppointments = mockAppointments.filter(apt =>
-      selectedDate && apt.date.toDateString() === selectedDate.toDateString()
-    );
+    // Fetch appointments for the selected date
+    const fetchAppointments = useCallback(async (currentUserId: string, date: Date) => {
+        setIsLoading(true);
+        try {
+            const start = Timestamp.fromDate(startOfDay(date));
+            const end = Timestamp.fromDate(endOfDay(date));
+
+            const q = query(
+                collection(db, "appointments"),
+                where("doctorId", "==", currentUserId),
+                where("status", "==", "confirmed"), // Fetch only confirmed appointments
+                where("date", ">=", start),
+                where("date", "<=", end),
+                orderBy("date", "asc"), // Order by date (effectively the timestamp)
+                 orderBy("time", "asc") // Consider if time needs a separate numeric field for reliable sorting
+            );
+
+            const querySnapshot = await getDocs(q);
+            const appointmentsData = querySnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            })) as Appointment[];
+            setAppointments(appointmentsData);
+        } catch (error) {
+            console.error("Error fetching appointments:", error);
+            // Handle error, maybe show a toast
+        } finally {
+            setIsLoading(false);
+        }
+    }, []); // No dependencies needed inside useCallback as it uses args
+
+    useEffect(() => {
+        if (user && selectedDate) {
+            fetchAppointments(user.uid, selectedDate);
+        } else {
+             // Clear appointments if no user or date selected
+            setAppointments([]);
+            setIsLoading(false); // Ensure loading is false if fetch isn't called
+        }
+    }, [user, selectedDate, fetchAppointments]); // Refetch when user or selectedDate changes
+
+    // Helper function to format Timestamp to time string
+    const formatTime = (timestamp: Timestamp): string => {
+      if (!timestamp) return 'N/A';
+      try {
+        // The 'time' field should ideally be used directly if stored as string.
+        // If only timestamp is available, format it.
+        return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } catch (e) {
+        return 'Invalid Time';
+      }
+    };
+
+     // Helper function to format Timestamp to date string
+     const formatDate = (timestamp: Timestamp): string => {
+        if (!timestamp) return 'N/A';
+        try {
+            return timestamp.toDate().toLocaleDateString();
+        } catch (e) {
+            return 'Invalid Date';
+        }
+     };
+
+     const getStatusVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
+        switch (status) {
+            case 'confirmed': return 'default'; // Blue?
+            case 'completed': return 'secondary'; // Green?
+            case 'pending': return 'outline'; // Yellow?
+            case 'canceled': return 'destructive';
+            default: return 'outline';
+        }
+    };
+
+    const getStatusColorClass = (status: string): string => {
+        switch (status) {
+             case 'confirmed': return 'bg-blue-100 text-blue-800 border-blue-300';
+             case 'completed': return 'bg-green-100 text-green-800 border-green-300';
+             case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+             case 'canceled': return 'bg-red-100 text-red-800 border-red-300';
+             default: return '';
+        }
+    }
+
 
   return (
     <AppLayout>
@@ -37,10 +128,11 @@ export default function DoctorSchedulePage() {
               </CardHeader>
               <CardContent className="flex justify-center">
                  <Calendar
-                    mode="single" // Set mode to single
+                    mode="single"
                     selected={selectedDate}
-                    onSelect={setSelectedDate} // Use onSelect for single date
+                    onSelect={setSelectedDate}
                     className="rounded-md border"
+                    // initialFocus // Can sometimes cause issues, enable if needed
                   />
               </CardContent>
             </Card>
@@ -49,22 +141,40 @@ export default function DoctorSchedulePage() {
           <div className="md:col-span-2">
             <Card>
               <CardHeader>
-                 <CardTitle>Appointments for {selectedDate ? selectedDate.toLocaleDateString() : 'Today'}</CardTitle>
-                 <CardDescription>View and manage appointments for the selected date.</CardDescription>
+                 <CardTitle>Appointments for {selectedDate ? selectedDate.toLocaleDateString() : 'Selected Date'}</CardTitle>
+                 <CardDescription>View confirmed appointments for the selected date.</CardDescription>
               </CardHeader>
               <CardContent>
-                {filteredAppointments.length > 0 ? (
+                {isLoading ? (
+                    // Skeleton Loader for Appointments List
+                    <ul className="space-y-4">
+                         {[...Array(4)].map((_, index) => (
+                             <li key={index} className="flex items-center justify-between p-3 border rounded-md bg-card">
+                                 <div className="space-y-2">
+                                     <Skeleton className="h-5 w-32" />
+                                     <Skeleton className="h-4 w-20" />
+                                 </div>
+                                 <Skeleton className="h-6 w-20 rounded-full" />
+                             </li>
+                         ))}
+                    </ul>
+                ) : appointments.length > 0 ? (
                   <ul className="space-y-4">
-                    {filteredAppointments.map((apt) => (
+                    {appointments.map((apt) => (
                       <li key={apt.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:bg-muted/50 transition-colors">
                         <div>
                           <p className="font-medium">{apt.patientName}</p>
-                          <p className="text-sm text-muted-foreground">{apt.time}</p>
+                          <p className="text-sm text-muted-foreground">{apt.time}</p> {/* Display stored time string */}
+                           {/* <p className="text-sm text-muted-foreground">Date: {formatDate(apt.date)}</p> */}
                         </div>
-                         <Badge variant={apt.status === 'confirmed' ? 'default' : 'secondary'} className={apt.status === 'pending' ? 'bg-yellow-500/80 text-yellow-900' : ''}>
-                            {apt.status.charAt(0).toUpperCase() + apt.status.slice(1)}
-                        </Badge>
-                        {/* Add actions like 'View Details', 'Reschedule', 'Cancel' */}
+                         {/* Badge should reflect the actual status, even though we filtered */}
+                         <Badge
+                             variant={getStatusVariant(apt.status)}
+                             className={`capitalize ${getStatusColorClass(apt.status)}`}
+                            >
+                            {apt.status}
+                         </Badge>
+                        {/* TODO: Add actions like 'View Details', 'Mark as Completed', 'Cancel' */}
                       </li>
                     ))}
                   </ul>
@@ -79,3 +189,5 @@ export default function DoctorSchedulePage() {
     </AppLayout>
   );
 }
+
+    

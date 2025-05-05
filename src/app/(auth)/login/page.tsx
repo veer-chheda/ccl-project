@@ -77,6 +77,7 @@ export default function LoginPage() {
         description: `Welcome, ${result.user.displayName}!`,
       });
       router.push("/"); // Redirect to home
+      router.reload();
     } catch (error: any) {
       console.error("Google Sign-in failed:", error);
       toast({
