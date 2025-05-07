@@ -1,4 +1,4 @@
-tsx
+
 import {
   Sheet,
   SheetClose,
