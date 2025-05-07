@@ -7,30 +7,43 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Send, Paperclip, Search } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Send, Paperclip, Search, Plus } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  serverTimestamp,
+  orderBy,
+  limit,
+  onSnapshot,
+  doc,
+  updateDoc
+} from 'firebase/firestore';
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 
 export default function PatientMessagesPage() {
   const [messageInput, setMessageInput] = useState("");
-  const [searchTerm, setSearchTerm] = useState(""); 
-  const [doctors, setDoctors] = useState<any[]>([]); // List of doctors
-  const [filteredDoctors, setFilteredDoctors] = useState<any[]>([]); // Filtered list based on search
+  const [searchTerm, setSearchTerm] = useState("");
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [filteredDoctors, setFilteredDoctors] = useState<any[]>([]);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
-  const [selectedDoctor, setSelectedDoctor] = useState<any | null>(null); // State to hold the selected doctor
+  const [selectedDoctor, setSelectedDoctor] = useState<any | null>(null);
   const { user, loading } = useAuth();
   const [conversations, setConversations] = useState<any[]>([]);
   const [messages, setMessages] = useState<any[]>([]);
   const { toast } = useToast();
 
-  // Fetch conversations for the current user
+  const hasInitialized = useRef(false); // Added ref to track initial load
+
   useEffect(() => {
     if (!user) {
       setConversations([]);
@@ -49,8 +62,10 @@ export default function PatientMessagesPage() {
       }));
       setConversations(conversationsData);
       setIsLoadingConversations(false);
-      if (!selectedConversationId && conversationsData.length > 0) {
+
+      if (!hasInitialized.current && conversationsData.length > 0) {
         setSelectedConversationId(conversationsData[0].id);
+        hasInitialized.current = true;
       }
     }, (error) => {
       console.error("Error fetching conversations:", error);
@@ -59,12 +74,12 @@ export default function PatientMessagesPage() {
     });
 
     return () => unsubscribe();
-  }, [user, selectedConversationId, toast]);
+  }, [user, toast]);
 
-  // Fetch messages for the selected conversation
   useEffect(() => {
     if (!selectedConversationId) {
       setMessages([]);
+      setIsLoadingMessages(false);
       return;
     }
 
@@ -82,11 +97,9 @@ export default function PatientMessagesPage() {
     return () => unsubscribe();
   }, [selectedConversationId]);
 
-  // Fetch doctors for starting a conversation
   useEffect(() => {
     const fetchDoctors = async () => {
       try {
-        // Query all users who have the "doctor" role
         const q = query(collection(db, "users"), where("role", "==", "doctor"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
           const doctorsData = snapshot.docs.map(doc => ({
@@ -94,7 +107,7 @@ export default function PatientMessagesPage() {
             ...doc.data(),
           }));
           setDoctors(doctorsData);
-          setFilteredDoctors(doctorsData); // Initially show all doctors
+          setFilteredDoctors(doctorsData);
         });
 
         return () => unsubscribe();
@@ -107,10 +120,9 @@ export default function PatientMessagesPage() {
     fetchDoctors();
   }, [toast]);
 
-  // Filter doctors based on search term
   useEffect(() => {
     if (!searchTerm.trim()) {
-      setFilteredDoctors(doctors); // Show all if search term is empty
+      setFilteredDoctors(doctors);
     } else {
       setFilteredDoctors(doctors.filter(doctor =>
         doctor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -119,18 +131,13 @@ export default function PatientMessagesPage() {
     }
   }, [searchTerm, doctors]);
 
-
-  // Filter conversations based on the search term
   const filteredConversations = conversations.filter(conv =>
     conv.doctorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     conv.specialization.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Handle sending messages
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !selectedConversationId) return;
-
-    console.log(`Sending message to ${selectedConversationId}: ${messageInput}`);
 
     try {
       const newMessage = {
@@ -154,24 +161,20 @@ export default function PatientMessagesPage() {
     }
   };
 
-  // Handle file upload
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && selectedConversationId) {
       console.log(`Uploading file for ${selectedConversationId}:`, file.name);
-      toast({ title: "File Upload", description: `${file.name} selected. Upload functionality TBD.`});
+      toast({ title: "File Upload", description: `${file.name} selected. Upload functionality TBD.` });
     }
   };
 
-  // Start a new conversation
   const handleStartNewConversation = async () => {
     if (!selectedDoctor || !messageInput.trim()) return;
 
     try {
-      console.log('Attempting to create new conversation with data:', { patientId: user?.uid, doctorId: selectedDoctor.id, doctorName: selectedDoctor.name, doctorAvatar: selectedDoctor.avatar, specialization: selectedDoctor.specialization, lastMessageText: messageInput, updatedAt: serverTimestamp() });
-      // Create a new conversation
       const newConversation = {
-        patientName: user?.displayName || 'Patient', // Add patient name here
+        patientName: user?.displayName || 'Patient',
         patientId: user?.uid,
         doctorId: selectedDoctor.id,
         doctorName: selectedDoctor.name,
@@ -182,7 +185,6 @@ export default function PatientMessagesPage() {
       const conversationRef = await addDoc(collection(db, "conversations"), newConversation);
       setSelectedConversationId(conversationRef.id);
 
-      // Send the first message in the new conversation
       const newMessage = {
         senderId: user?.uid,
         senderRole: "patient",
@@ -199,16 +201,24 @@ export default function PatientMessagesPage() {
     }
   };
 
-  // Get selected conversation
   const selectedConversation = conversations.find(conv => conv.id === selectedConversationId);
 
   return (
     <AppLayout>
       <div className="flex h-[calc(100vh-var(--header-height,4rem))] border-t">
-        {/* Conversation List Sidebar */}
+        {/* Sidebar */}
         <div className="w-full md:w-1/3 lg:w-1/4 border-r flex flex-col">
           <div className="p-4 border-b">
-            <h2 className="text-xl font-semibold mb-2">Messages</h2>
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-xl font-semibold">Messages</h2>
+              <Button variant="outline" size="icon" onClick={() => {
+                setSelectedConversationId(null);
+                setSelectedDoctor(null);
+                setMessages([]);
+              }}>
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
@@ -252,7 +262,6 @@ export default function PatientMessagesPage() {
         <div className="flex-1 flex flex-col bg-background">
           {selectedConversation ? (
             <>
-              {/* Chat Header */}
               <div className="p-4 border-b flex items-center gap-3">
                 <Avatar className="h-10 w-10">
                   <AvatarImage src={selectedConversation.doctorAvatar || ''} alt={selectedConversation.doctorName} />
@@ -264,7 +273,6 @@ export default function PatientMessagesPage() {
                 </div>
               </div>
 
-              {/* Messages */}
               <ScrollArea className="flex-1 p-4 space-y-4">
                 {isLoadingMessages ? (
                   <p className="text-center text-muted-foreground">Loading messages...</p>
@@ -281,7 +289,6 @@ export default function PatientMessagesPage() {
                 ))}
               </ScrollArea>
 
-              {/* Message Input */}
               <div className="p-4 border-t flex items-center gap-2 bg-muted/50">
                 <Input
                   placeholder="Type your message..."
@@ -312,9 +319,8 @@ export default function PatientMessagesPage() {
             </div>
           )}
 
-          {/* Start a New Conversation Section */}
           {!selectedConversation && (
-            <div className="p-4 border-t">
+            <div className="p-4 border-t flex-1 flex flex-col justify-center items-center">
               <h3 className="text-lg font-semibold mb-2">Start a New Conversation</h3>
               <div className="relative mb-4">
                 <select
@@ -336,7 +342,9 @@ export default function PatientMessagesPage() {
                     value={messageInput}
                     onChange={(e) => setMessageInput(e.target.value)}
                   />
-                  <Button onClick={handleStartNewConversation} disabled={!messageInput.trim()}>Start Conversation</Button>
+                  <Button onClick={handleStartNewConversation} disabled={!messageInput.trim()}>
+                    Start Conversation
+                  </Button>
                 </div>
               )}
             </div>
